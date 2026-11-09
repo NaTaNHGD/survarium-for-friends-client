@@ -9,7 +9,7 @@ import secrets
 import socket
 import threading
 import time
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import HTTPSHandler, HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -22,6 +22,11 @@ class DiscordSession(TypedDict):
     session: str
     id: str
     name: str
+    refresh_token: NotRequired[str]
+
+
+class LoginRejected(ValueError):
+    pass
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -29,8 +34,8 @@ class NoRedirect(HTTPRedirectHandler):
         raise ValueError('O servidor respondeu com um redirecionamento inesperado')
 
 
-def api(path: str, payload: dict[str, str] | None = None, token: str = '') -> dict[str, object]:
-    if path not in ('/health', '/oauth/exchange', '/session'):
+def api(path: str, payload: dict[str, str | bool] | None = None, token: str = '') -> dict[str, object]:
+    if path not in ('/health', '/oauth/exchange', '/oauth/refresh', '/session'):
         raise ValueError('Invalid public API path')
     headers = {'Content-Type': 'application/json'}
     if token:
@@ -52,6 +57,8 @@ def api(path: str, payload: dict[str, str] | None = None, token: str = '') -> di
         }
         message = messages.get(exc.code, 'Serviço da VPS indisponível. Confira o servidor e tente novamente.')
         exc.close()
+        if exc.code in (401, 403):
+            raise LoginRejected(message) from exc
         raise ValueError(message) from exc
     if not isinstance(value, dict):
         raise ValueError('Resposta inválida da VPS')
@@ -129,12 +136,25 @@ def discord_login() -> DiscordSession:
             server.handle_request()
     if not result:
         raise ValueError('Login cancelado ou expirado; conecte o Discord novamente')
-    value = api('/oauth/exchange', {'code': result[0], 'verifier': verifier})
+    value = api('/oauth/exchange', {'code': result[0], 'verifier': verifier, 'remember': True})
+    return session_result(value)
+
+
+def session_result(value: dict[str, object]) -> DiscordSession:
     if (not isinstance(value.get('session'), str) or not 20 <= len(value['session']) <= 100
             or not isinstance(value.get('id'), str) or re.fullmatch(r'[0-9]{1,20}', value['id']) is None
             or not isinstance(value.get('name'), str)):
         raise ValueError('Identidade Discord inválida')
+    if 'refresh_token' in value:
+        from saved_login import validate
+        validate(value)
     return cast(DiscordSession, value)
+
+
+def renew_login(refresh_token: str) -> DiscordSession:
+    if not 16 <= len(refresh_token) <= 2048 or not refresh_token.isascii():
+        raise ValueError('Credencial de renovação inválida')
+    return session_result(api('/oauth/refresh', {'refresh_token': refresh_token}))
 
 
 def join_ticket(session: DiscordSession) -> str:

@@ -45,7 +45,14 @@ def api(path: str, payload: dict[str, str] | None = None, token: str = '') -> di
                 raise ValueError('Resposta excessiva da VPS')
             value = json.loads(body)
     except HTTPError as exc:
-        raise ValueError('Login não autorizado. Confira se sua conta Discord foi liberada na VPS.') from exc
+        messages = {
+            401: 'Sessão expirada. Conecte o Discord novamente.',
+            403: 'A VPS recusou o login. Confira OAuth e acesso da conta; consulte dedicated-data/worker.log no servidor.',
+            429: 'Muitas tentativas. Aguarde um minuto e tente novamente.',
+        }
+        message = messages.get(exc.code, 'Serviço da VPS indisponível. Confira o servidor e tente novamente.')
+        exc.close()
+        raise ValueError(message) from exc
     if not isinstance(value, dict):
         raise ValueError('Resposta inválida da VPS')
     return cast(dict[str, object], value)

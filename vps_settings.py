@@ -14,4 +14,3 @@ def client_tls() -> ssl.SSLContext:
     context = ssl.create_default_context(cafile=str(ROOT / 'vps-server-ca.pem'))
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     return context
-

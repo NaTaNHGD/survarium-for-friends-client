@@ -46,4 +46,3 @@ for (const requested of [-1, NaN, '50000'])
                                          '--data', str((Path(folder) / 'Client Data').resolve())])
             with self.assertRaises(ValueError):
                 validate_client(executable)
-
